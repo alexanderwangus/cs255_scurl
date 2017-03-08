@@ -2,6 +2,8 @@
 
 import sys
 import argparse
+import OpenSSL
+import socket
 
 def t1():
     print "in t1"
@@ -23,6 +25,16 @@ def main():
         t1()
     else:
         t2()
+
+    # Create socket and context, and setup connection
+    context = OpenSSL.SSL.Context(OpenSSL.SSL.SSLv23_METHOD) # method defined by command line options
+    connection = OpenSSL.SSL.Connection(context, socket.socket())
+    connection.connect(("www.google.com", 443)) # defualt 443
+    connection.do_handshake()
+
+    # Verify cert chain
+    # connection.get_client_ca_list()
+
 
 if __name__ == '__main__':
     main()
