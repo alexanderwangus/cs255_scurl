@@ -6,22 +6,24 @@ import OpenSSL
 import socket
 
 def verify_callback(connection, x509, err_num, err_depth, ret_code):
-    if err_num == 0:
-        if err_depth != 0:
-            if var_args["crlfile"] and not var_args["pinnedcertificate"]:
-                if x509.get_serial_number() in serial_list:
-                    sys.stderr.write("Certificate serial number is in CRL!\n")
-                    return False
-            return True
-        else:
-            if var_args["pinnedcertificate"]:
-                cert_file = open(var_args['pinnedcertificate'], "rb").read()
-                certificate = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, cert_file)
-                if certificate.digest("sha256") != x509.digest("sha256"):
-                    sys.stderr.write("Certificate does not match pinned certificate!\n")
-                    return False
-            return True
-    return False
+    if err_depth != 0:
+        if var_args["crlfile"] and not var_args["pinnedcertificate"]:
+            if x509.get_serial_number() in serial_list:
+                sys.stderr.write("Certificate serial number is in CRL!\n")
+                return False
+        return True
+    else:
+        if var_args["pinnedcertificate"]:
+            cert_file = open(var_args['pinnedcertificate'], "rb").read()
+            certificate = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, cert_file)
+            if certificate.digest("sha256") != x509.digest("sha256"):
+                sys.stderr.write("Certificate does not match pinned certificate!\n")
+                return False
+        elif var_args["crlfile"]:
+            if x509.get_serial_number() in serial_list:
+                sys.stderr.write("Certificate serial number is in CRL!\n")
+                return False
+        return True
 
 def main():
     parser = argparse.ArgumentParser()
@@ -84,7 +86,7 @@ def main():
 
     connection.shutdown()
     connection.close()
-    print data
+    print data[data.find("\r\n\r\n") + 4:]
 
 
     # Verify cert chain
