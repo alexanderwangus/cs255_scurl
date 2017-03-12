@@ -40,6 +40,10 @@ def main():
     global var_args
     var_args = vars(args)
 
+    if not var_args["url"]:
+        sys.stderr.write("Please include a URL\n")
+        sys.exit(-1)
+
     method = ""
     if var_args["tlsv1.0"]:
         method = OpenSSL.SSL.TLSv1_METHOD
@@ -53,6 +57,16 @@ def main():
         method = OpenSSL.SSL.SSLv23_METHOD
     else:
         method = OpenSSL.SSL.TLSv1_2_METHOD
+
+    if var_args["url"].find("https://") != 0:
+        sys.stderr.write("URL does not have HTTPS scheme!\n")
+        sys.exit(-1)
+    var_args["url"] = var_args["url"][8:]
+    path = "/"
+    index = var_args["url"].find("/")
+    if index > -1:
+        path = var_args["url"][index:]
+        var_args["url"] = var_args["url"][:index]
 
     # Create socket and context, and setup connection
     context = OpenSSL.SSL.Context(method) # method defined by command line options
@@ -75,7 +89,7 @@ def main():
         connection.do_handshake()
     except:
         sys.exit(-1)
-    connection.send("GET / HTTP/1.0\r\nHost: " + var_args["url"] + "\r\nUser-Agent: CryptoGods\r\n\r\n")
+    connection.send("GET " + path + " HTTP/1.0\r\nHost: " + var_args["url"] + "\r\nUser-Agent: CryptoGods\r\n\r\n")
     data = ""
     while True:
         try:
@@ -86,12 +100,12 @@ def main():
 
     connection.shutdown()
     connection.close()
+    if data[-1] == "\n": data = data[:-1]
     print data[data.find("\r\n\r\n") + 4:]
-
 
     # Verify cert chain
     # connection.get_client_ca_list()
-
+    return 0
 
 if __name__ == '__main__':
     main()
