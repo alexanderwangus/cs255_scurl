@@ -8,7 +8,6 @@ import socket
 def verify_callback(connection, x509, err_num, err_depth, ret_code):
     if err_num == 0:
         if err_depth != 0:
-            print var_args
             if var_args["crlfile"] and not var_args["pinnedcertificate"]:
                 if x509.get_serial_number() in serial_list:
                     sys.stderr.write("Certificate serial number is in CRL!\n")
@@ -74,7 +73,7 @@ def main():
         connection.do_handshake()
     except:
         sys.exit(-1)
-    connection.send("GET / HTTP/1.0\r\n" + var_args["url"] + "\r\nUser-Agent: CryptoGods\r\n\r\n")
+    connection.send("GET / HTTP/1.0\r\nHost: " + var_args["url"] + "\r\nUser-Agent: CryptoGods\r\n\r\n")
     data = ""
     while True:
         try:
