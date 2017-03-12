@@ -31,6 +31,19 @@ def main():
     connection = OpenSSL.SSL.Connection(context, socket.socket())
     connection.connect(("www.google.com", 443)) # defualt 443
     connection.do_handshake()
+    connection.send("GET / HTTP/1.0\r\nHost: www.google.com\r\nUser-Agent: CryptoGods\r\n\r\n")
+    data = ""
+    while True:
+        try:
+            new_data = connection.recv(8192)
+            data += new_data
+        except OpenSSL.SSL.Error:
+            break
+    print data
+    connection.shutdown()
+    connection.close()
+    print data
+
 
     # Verify cert chain
     # connection.get_client_ca_list()
