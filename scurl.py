@@ -5,6 +5,19 @@ import argparse
 import OpenSSL
 import socket
 
+def verify_callback(connection, x509, err_num, err_depth, ret_code):
+    if err_num == 0:
+        if err_depth != 0:
+            return True
+        else:
+            if var_args['pinnedcertificate']:
+                cert_file = open(var_args['pinnedcertificate'], "rb").read()
+                certificate = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, cert_file)
+                if certificate.digest("sha256") != x509.digest("sha256"):
+                    sys.stderr.write("Certificate does not match pinned certificate!\n")
+                    return False
+            return True
+    return False
 
 def main():
     parser = argparse.ArgumentParser()
@@ -17,9 +30,8 @@ def main():
     parser.add_argument("--pinnedcertificate")
     parser.add_argument("url")
     args = parser.parse_args()
+    global var_args
     var_args = vars(args)
-
-    print var_args
 
     method = ""
     if var_args["tlsv1.0"]:
@@ -37,6 +49,7 @@ def main():
 
     # Create socket and context, and setup connection
     context = OpenSSL.SSL.Context(method) # method defined by command line options
+    context.set_verify(OpenSSL.SSL.VERIFY_PEER | OpenSSL.SSL.VERIFY_FAIL_IF_NO_PEER_CERT, verify_callback)
     # Check for cipher list and handle appropriately
     if var_args["ciphers"]:
         try:
@@ -46,7 +59,10 @@ def main():
 
     connection = OpenSSL.SSL.Connection(context, socket.socket())
     connection.connect((var_args["url"], 443)) # default 443
-    connection.do_handshake()
+    try:
+        connection.do_handshake()
+    except:
+        sys.exit(-1)
     connection.send("GET / HTTP/1.0\r\n" + var_args["url"] + "\r\nUser-Agent: CryptoGods\r\n\r\n")
     data = ""
     while True:
