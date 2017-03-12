@@ -14,8 +14,12 @@ def main():
     parser.add_argument("--sslv3", action="store_true")
     parser.add_argument("-3",action="store_true")
     parser.add_argument("--ciphers")
+    parser.add_argument("--pinnedcertificate")
+    parser.add_argument("url")
     args = parser.parse_args()
     var_args = vars(args)
+
+    print var_args
 
     method = ""
     if var_args["tlsv1.0"]:
@@ -41,9 +45,9 @@ def main():
             context = OpenSSL.SSL.Context(method)
 
     connection = OpenSSL.SSL.Connection(context, socket.socket())
-    connection.connect(("www.google.com", 443)) # default 443
+    connection.connect((var_args["url"], 443)) # default 443
     connection.do_handshake()
-    connection.send("GET / HTTP/1.0\r\nHost: www.google.com\r\nUser-Agent: CryptoGods\r\n\r\n")
+    connection.send("GET / HTTP/1.0\r\n" + var_args["url"] + "\r\nUser-Agent: CryptoGods\r\n\r\n")
     data = ""
     while True:
         try:
