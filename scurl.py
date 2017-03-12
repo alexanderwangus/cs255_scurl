@@ -8,9 +8,14 @@ import socket
 def verify_callback(connection, x509, err_num, err_depth, ret_code):
     if err_num == 0:
         if err_depth != 0:
+            print var_args
+            if var_args["crlfile"] and not var_args["pinnedcertificate"]:
+                if x509.get_serial_number() in serial_list:
+                    sys.stderr.write("Certificate serial number is in CRL!\n")
+                    return False
             return True
         else:
-            if var_args['pinnedcertificate']:
+            if var_args["pinnedcertificate"]:
                 cert_file = open(var_args['pinnedcertificate'], "rb").read()
                 certificate = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, cert_file)
                 if certificate.digest("sha256") != x509.digest("sha256"):
@@ -28,6 +33,7 @@ def main():
     parser.add_argument("-3",action="store_true")
     parser.add_argument("--ciphers")
     parser.add_argument("--pinnedcertificate")
+    parser.add_argument("--crlfile")
     parser.add_argument("url")
     args = parser.parse_args()
     global var_args
@@ -56,6 +62,11 @@ def main():
             context.set_cipher_list(var_args["ciphers"])
         except:
             context = OpenSSL.SSL.Context(method)
+    if var_args["crlfile"]:
+        crl_file = open(var_args["crlfile"], "rb").read()
+        crl = OpenSSL.crypto.load_crl(OpenSSL.crypto.FILETYPE_PEM, crl_file)
+        global serial_list
+        serial_list = [x.get_serial() for x in crl.get_revoked()]
 
     connection = OpenSSL.SSL.Connection(context, socket.socket())
     connection.connect((var_args["url"], 443)) # default 443
