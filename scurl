@@ -37,8 +37,14 @@ def verify_callback(connection, x509, err_num, err_depth, ret_code):
                     #sys.stderr.write("Host name does not match certificate subject!\n")
                     return False
             elif x509.get_subject().commonName != var_args["url"]:
+                isSAN = False
+                for i in range(x509.get_extension_count()):
+                    ext = x509.get_extension(i)
+                    if ext.get_short_name() == "subjectAltName":
+                        sans = [x for x in ext.__str__()[4:].split(', DNS:')]
+                        if var_args["url"] in sans: isSAN = True
                 #sys.stderr.write("Host name does not match certificate subject!\n")
-                return False
+                if not isSAN: return False
             if var_args["crlfile"]:
                 if x509.get_serial_number() in serial_list:
                     #sys.stderr.write("Certificate serial number is in CRL!\n")
@@ -92,8 +98,23 @@ def main():
         path = var_args["url"][index:]
         var_args["url"] = var_args["url"][:index]
 
+    port = 443
+    port_index = var_args["url"].rfind(":")
+    if port_index > -1:
+        try:
+            port = int(var_args["url"][port_index + 1:])
+            var_args["url"] = var_args["url"][:port_index]
+        except:
+            pass
+
     # Create socket and context, and setup connection
     context = OpenSSL.SSL.Context(method) # method defined by command line options
+    # Check for cipher list and handle appropriately
+    if var_args["ciphers"]:
+        try:
+            context.set_cipher_list(var_args["ciphers"])
+        except:
+            context = OpenSSL.SSL.Context(method)
     context.set_verify(OpenSSL.SSL.VERIFY_PEER | OpenSSL.SSL.VERIFY_FAIL_IF_NO_PEER_CERT, verify_callback)
     if var_args["cacert"]:
         try:
@@ -103,12 +124,6 @@ def main():
             sys.exit(-1)
     else:
         context.set_default_verify_paths()
-    # Check for cipher list and handle appropriately
-    if var_args["ciphers"]:
-        try:
-            context.set_cipher_list(var_args["ciphers"])
-        except:
-            context = OpenSSL.SSL.Context(method)
     if var_args["crlfile"]:
         try:
             crl_file = open(var_args["crlfile"], "rb").read()
@@ -122,7 +137,7 @@ def main():
     connection = OpenSSL.SSL.Connection(context, socket.socket())
     connection.set_tlsext_host_name(var_args["url"])
     try:
-        connection.connect((var_args["url"], 443))
+        connection.connect((var_args["url"], port))
         connection.do_handshake()
     except OpenSSL.SSL.Error:
         sys.stderr.write("SSL error caught!\n")
