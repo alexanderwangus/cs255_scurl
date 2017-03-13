@@ -4,59 +4,83 @@ import sys
 import argparse
 import OpenSSL
 import socket
+import datetime
 
 def verify_callback(connection, x509, err_num, err_depth, ret_code):
-    if err_depth != 0:
-        if var_args["crlfile"] and not var_args["pinnedcertificate"]:
-            if x509.get_serial_number() in serial_list:
-                sys.stderr.write("Certificate serial number is in CRL!\n")
+    if var_args["pinnedcertificate"]:
+        if err_depth == 0:
+            try:
+                cert_file = open(var_args['pinnedcertificate'], "rb").read()
+                certificate = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, cert_file)
+                if certificate.digest("sha256") != x509.digest("sha256"):
+                    #sys.stderr.write("Certificate does not match pinned certificate!\n")
+                    return False
+            except IOError:
                 return False
         return True
-    else:
-        if var_args["pinnedcertificate"]:
-            cert_file = open(var_args['pinnedcertificate'], "rb").read()
-            certificate = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, cert_file)
-            if certificate.digest("sha256") != x509.digest("sha256"):
-                sys.stderr.write("Certificate does not match pinned certificate!\n")
+    if err_num == 0 or (err_num == 10 and var_args["allow_stale_certs"]):
+        if err_num == 10:
+            expiration_date = datetime.datetime.strptime(x509.get_notAfter(), "%Y%m%d%H%M%SZ")
+            delta = datetime.timedelta(var_args["allow_stale_certs"])
+            if datetime.datetime.utcnow() > expiration_date + delta:
                 return False
-        elif var_args["crlfile"]:
-            if x509.get_serial_number() in serial_list:
-                sys.stderr.write("Certificate serial number is in CRL!\n")
+        if err_depth != 0:
+            if var_args["crlfile"] and not var_args["pinnedcertificate"]:
+                if x509.get_serial_number() in serial_list:
+                    #sys.stderr.write("Certificate serial number is in CRL!\n")
+                    return False
+            return True
+        else:
+            if x509.get_subject().commonName[:2] == "*.":
+                if x509.get_subject().commonName[2:] != var_args["url"][var_args["url"].find(".") + 1:] and \
+                    x509.get_subject().commonName[2:] != var_args["url"]:
+                    #sys.stderr.write("Host name does not match certificate subject!\n")
+                    return False
+            elif x509.get_subject().commonName != var_args["url"]:
+                #sys.stderr.write("Host name does not match certificate subject!\n")
                 return False
-        return True
+            if var_args["crlfile"]:
+                if x509.get_serial_number() in serial_list:
+                    #sys.stderr.write("Certificate serial number is in CRL!\n")
+                    return False
+            return True
+    #sys.stderr.write("Error number not zero!\n")
+    return False
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(usage=argparse.SUPPRESS)
     parser.add_argument("--tlsv1.0", action="store_true")
     parser.add_argument("--tlsv1.1", action="store_true")
     parser.add_argument("--tlsv1.2", action="store_true")
     parser.add_argument("--sslv3", action="store_true")
-    parser.add_argument("-3",action="store_true")
+    parser.add_argument("-3", action="store_true")
     parser.add_argument("--ciphers")
     parser.add_argument("--pinnedcertificate")
     parser.add_argument("--crlfile")
+    parser.add_argument("--cacert")
+    parser.add_argument("--allow-stale-certs", type=int)
     parser.add_argument("url")
     args = parser.parse_args()
     global var_args
     var_args = vars(args)
 
-    if not var_args["url"]:
-        sys.stderr.write("Please include a URL\n")
-        sys.exit(-1)
-
-    method = ""
-    if var_args["tlsv1.0"]:
-        method = OpenSSL.SSL.TLSv1_METHOD
-    elif var_args["tlsv1.1"]:
-        method = OpenSSL.SSL.TLSv1_1_METHOD
-    elif var_args["tlsv1.2"]:
-        method = OpenSSL.SSL.TLSv1_2_METHOD
-    elif var_args["sslv3"]:
-        method = OpenSSL.SSL.SSLv23_METHOD #SSLV3 might be deprecated in newest OpenSSL, switch back and test on corn
-    elif var_args["3"]:
-        method = OpenSSL.SSL.SSLv23_METHOD
-    else:
-        method = OpenSSL.SSL.TLSv1_2_METHOD
+    methods = ["--tlsv1.0", "--tlsv1.1", "--tlsv1.2", "--sslv3", "-3"]
+    args_reversed = sys.argv[::-1]
+    method = OpenSSL.SSL.TLSv1_2_METHOD
+    min_index = sys.maxint
+    for m in methods:
+        try:
+            index = args_reversed.index(m)
+            if index < min_index: min_index = index
+        except:
+            pass
+    if min_index != sys.maxint:
+        method = args_reversed[min_index]
+        if method == "--tlsv1.0": method = OpenSSL.SSL.TLSv1_METHOD
+        elif method == "--tlsv1.1": method = OpenSSL.SSL.TLSv1_1_METHOD
+        elif method == "--tlsv1.2": method = OpenSSL.SSL.TLSv1_2_METHOD
+        elif method == "--sslv3": method = OpenSSL.SSL.SSLv3_METHOD
+        elif method == "-3": method = OpenSSL.SSL.SSLv3_METHOD
 
     if var_args["url"].find("https://") != 0:
         sys.stderr.write("URL does not have HTTPS scheme!\n")
@@ -71,6 +95,14 @@ def main():
     # Create socket and context, and setup connection
     context = OpenSSL.SSL.Context(method) # method defined by command line options
     context.set_verify(OpenSSL.SSL.VERIFY_PEER | OpenSSL.SSL.VERIFY_FAIL_IF_NO_PEER_CERT, verify_callback)
+    if var_args["cacert"]:
+        try:
+            context.load_verify_locations(var_args["cacert"])
+        except:
+            sys.stderr.write("Cannot open cacert file!\n")
+            sys.exit(-1)
+    else:
+        context.set_default_verify_paths()
     # Check for cipher list and handle appropriately
     if var_args["ciphers"]:
         try:
@@ -78,16 +110,28 @@ def main():
         except:
             context = OpenSSL.SSL.Context(method)
     if var_args["crlfile"]:
-        crl_file = open(var_args["crlfile"], "rb").read()
-        crl = OpenSSL.crypto.load_crl(OpenSSL.crypto.FILETYPE_PEM, crl_file)
-        global serial_list
-        serial_list = [x.get_serial() for x in crl.get_revoked()]
+        try:
+            crl_file = open(var_args["crlfile"], "rb").read()
+            crl = OpenSSL.crypto.load_crl(OpenSSL.crypto.FILETYPE_PEM, crl_file)
+            global serial_list
+            serial_list = [int(x.get_serial(), 16) for x in crl.get_revoked()]
+        except IOError:
+            sys.stderr.write("Cannot open CRL file!\n")
+            sys.exit(-1)
 
     connection = OpenSSL.SSL.Connection(context, socket.socket())
-    connection.connect((var_args["url"], 443)) # default 443
+    connection.set_tlsext_host_name(var_args["url"])
     try:
+        connection.connect((var_args["url"], 443))
         connection.do_handshake()
-    except:
+    except OpenSSL.SSL.Error:
+        sys.stderr.write("SSL error caught!\n")
+        sys.exit(-1)
+    except socket.gaierror:
+        sys.stderr.write("Invalid URL!\n")
+        sys.exit(-1)
+    except socket.error:
+        sys.stderr.write("Unable to connect!\n")
         sys.exit(-1)
     connection.send("GET " + path + " HTTP/1.0\r\nHost: " + var_args["url"] + "\r\nUser-Agent: CryptoGods\r\n\r\n")
     data = ""
